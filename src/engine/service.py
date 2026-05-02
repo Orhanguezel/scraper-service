@@ -70,6 +70,7 @@ async def perform_scrape(
         data=data,
         html=fetched.html if payload.return_html else None,
         text=fetched.text if payload.return_text else None,
+        cookies=fetched.cookies if payload.return_cookies else None,
     )
     await set_cached(redis, cache_key, response.model_dump(mode="json"))
     return response

@@ -15,6 +15,7 @@ class FetchResult:
     text: str
     final_url: str | None
     status_code: int | None
+    cookies: dict[str, str] | None = None
 
 
 def _response_html(response: Any) -> str:
@@ -50,10 +51,32 @@ def _fast_kwargs(request: ScrapeRequest) -> dict[str, Any]:
         headers["User-Agent"] = request.options.user_agent
     if request.extra_headers:
         headers.update(request.extra_headers)
-    return {
+    kwargs: dict[str, Any] = {
         "timeout": request.options.timeout or settings.default_timeout_seconds,
         "headers": headers,
     }
+    if request.cookies:
+        kwargs["cookies"] = request.cookies
+    return kwargs
+
+
+def _extract_cookies(response: Any) -> dict[str, Any] | None:
+    """Scrapling response'tan cookies dict cikar. Yoksa None doner.
+
+    curl-cffi response objesinde `cookies` (Cookies veya RequestsCookieJar) varsa onu donerir;
+    Playwright response'larinda bu alan olmayabilir, simdilik None.
+    """
+    raw = getattr(response, "cookies", None)
+    if raw is None:
+        return None
+    try:
+        if hasattr(raw, "items"):
+            return {str(k): str(v) for k, v in raw.items()}
+        if hasattr(raw, "get_dict"):
+            return {str(k): str(v) for k, v in raw.get_dict().items()}
+        return {str(c.name): str(c.value) for c in raw}
+    except Exception:
+        return None
 
 
 def _fetch_sync(request: ScrapeRequest) -> FetchResult:
@@ -81,12 +104,14 @@ def _fetch_sync(request: ScrapeRequest) -> FetchResult:
 
     html = _response_html(response)
     text = str(response.get_all_text(separator="\n", strip=True)) if hasattr(response, "get_all_text") else ""
+    cookies = _extract_cookies(response) if request.return_cookies else None
     return FetchResult(
         response=response,
         html=html,
         text=text,
         final_url=getattr(response, "url", None),
         status_code=getattr(response, "status", None),
+        cookies=cookies,
     )
 
 

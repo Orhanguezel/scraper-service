@@ -32,6 +32,9 @@ class ScrapeRequest(BaseModel):
     form_data: dict[str, str] | None = None
     json_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
+    # Cookies forward + return (multi-step istekler icin: GET'le cookies'i al, POST'larda kullan).
+    cookies: dict[str, str] | None = None
+    return_cookies: bool = False
 
 
 class ScrapeResponse(BaseModel):
@@ -47,4 +50,5 @@ class ScrapeResponse(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     html: str | None = None
     text: str | None = None
+    cookies: dict[str, str] | None = None
     error: str | None = None
