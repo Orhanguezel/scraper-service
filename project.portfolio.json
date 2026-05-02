@@ -1,0 +1,12 @@
+{
+  "name": "Scraper Service",
+  "slug": "scraper-service",
+  "type": "microservice",
+  "status": "development",
+  "stack": ["Python", "FastAPI", "Scrapling", "Redis", "Docker"],
+  "ports": {
+    "api": 8200,
+    "redis": 6390
+  },
+  "description": "Central Scrapling-powered web scraping gateway for portfolio projects."
+}
