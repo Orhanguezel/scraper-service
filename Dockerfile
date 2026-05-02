@@ -10,4 +10,6 @@ COPY src ./src
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8200
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8200"]
+# pyd4vinci/scrapling base image sets ENTRYPOINT=["scrapling"]; reset so our CMDs run directly.
+ENTRYPOINT []
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8200"]
