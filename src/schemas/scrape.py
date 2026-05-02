@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 ScrapeMode = Literal["fast", "stealthy", "dynamic"]
 ScrapeProfile = Literal["geo-page", "geo-robots"]
+HttpMethod = Literal["GET", "POST"]
 
 
 class ScrapeOptions(BaseModel):
@@ -25,6 +26,12 @@ class ScrapeRequest(BaseModel):
     options: ScrapeOptions = Field(default_factory=ScrapeOptions)
     return_html: bool = False
     return_text: bool = False
+    # POST destegi (sadece "fast" mode'da, curl-cffi impersonation ile).
+    # form_data set edildiginde Content-Type: application/x-www-form-urlencoded gonderilir.
+    method: HttpMethod = "GET"
+    form_data: dict[str, str] | None = None
+    json_body: dict[str, Any] | None = None
+    extra_headers: dict[str, str] | None = None
 
 
 class ScrapeResponse(BaseModel):

@@ -45,9 +45,11 @@ def _browser_kwargs(request: ScrapeRequest) -> dict[str, Any]:
 
 def _fast_kwargs(request: ScrapeRequest) -> dict[str, Any]:
     settings = get_settings()
-    headers = {}
+    headers: dict[str, str] = {}
     if request.options.user_agent:
         headers["User-Agent"] = request.options.user_agent
+    if request.extra_headers:
+        headers.update(request.extra_headers)
     return {
         "timeout": request.options.timeout or settings.default_timeout_seconds,
         "headers": headers,
@@ -59,12 +61,22 @@ def _fetch_sync(request: ScrapeRequest) -> FetchResult:
 
     url = str(request.url)
     if request.mode == "fast":
-        response = Fetcher.get(url, **_fast_kwargs(request))
+        kwargs = _fast_kwargs(request)
+        if request.method == "POST":
+            if request.json_body is not None:
+                kwargs["json"] = request.json_body
+            elif request.form_data is not None:
+                kwargs["data"] = request.form_data
+            response = Fetcher.post(url, **kwargs)
+        else:
+            response = Fetcher.get(url, **kwargs)
     elif request.mode == "dynamic":
+        # Browser-based POST henuz desteklenmiyor; method GET varsayilir.
         response = DynamicFetcher.fetch(url, **_browser_kwargs(request))
     else:
         kwargs = _browser_kwargs(request)
         kwargs["solve_cloudflare"] = request.options.solve_cloudflare
+        # Browser-based POST henuz desteklenmiyor; method GET varsayilir.
         response = StealthyFetcher.fetch(url, **kwargs)
 
     html = _response_html(response)
