@@ -31,6 +31,10 @@ curl https://scraper.guezelwebdesign.com/health
 APP_DIR=/var/www/scraper-service ./scripts/deploy.sh
 ```
 
+### Compose icindeki nginx ve port 80/443
+
+VPS uzerinde zaten sistem nginx (veya baska bir servis) `80` / `443` dinliyorsa `docker-compose.prod.yml` icindeki `nginx` servisi **bind hatasi** verebilir. Bu durumda `.env` dosyasina `SKIP_COMPOSE_NGINX=1` ekleyin; `scripts/deploy.sh` yalnizca `api`, `worker`, `redis` baslatir. TLS ve domain trafigi host nginx uzerinden `proxy_pass http://127.0.0.1:8200` ile API konteynerine gider (bkz. `nginx/scraper.conf`).
+
 ## SSL Note
 
 For the first certificate, stop anything on ports 80/443 and run certbot standalone manually, or mount an existing host-managed certificate into the `letsencrypt-certs` Docker volume. After that, webroot renewal can use `certbot-webroot`.
