@@ -39,6 +39,13 @@ def _timezone_for_language(language: str) -> str:
     return "UTC"
 
 
+def _accept_language_header(language: str) -> str:
+    if language == "tr":
+        return "tr-TR,tr;q=0.9,en-US;q=0.5,en;q=0.4"
+    upper = language.upper()
+    return f"{language}-{upper},{language};q=0.9,en-US;q=0.5,en;q=0.4"
+
+
 async def apply_stealth_to_page(page: Page) -> None:
     await stealth_async(page)
 
@@ -60,6 +67,7 @@ async def launch_stealth_context(
         viewport={"width": viewport[0], "height": viewport[1]},
         locale=locale,
         timezone_id=_timezone_for_language(language),
+        extra_http_headers={"Accept-Language": _accept_language_header(language)},
     )
     return pw, browser, context
 
@@ -75,6 +83,10 @@ async def detect_captcha(page: Page) -> bool:
     try:
         body = (await page.content()).lower()
         if "unusual traffic from your computer network" in body:
+            return True
+        if "our systems have detected unusual traffic" in body:
+            return True
+        if "i'm not a robot" in body or "im not a robot" in body:
             return True
     except Exception:
         pass

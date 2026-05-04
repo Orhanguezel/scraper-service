@@ -37,7 +37,7 @@ curl -X POST http://127.0.0.1:8200/api/v1/jobs \
 
 ## Places provider (Google Maps)
 
-`POST /api/v1/places/google-maps` extracts publicly visible business listings from Google Maps using a headless browser. Use it only for data you are entitled to collect. Reading and complying with Google Maps Terms of Service is your responsibility. If Google shows a CAPTCHA, the request fails with `captcha_detected` and is not retried automatically. For more than ten results per call, use `POST /api/v1/jobs` with `type: "places-google-maps"` (see `docs/places-usage-guide.md`).
+`POST /api/v1/places/google-maps` extracts publicly visible business listings from Google Maps using a headless browser. **This provider is only for publicly visible business data; you must read and comply with Google Maps Terms of Service yourself.** Use it only for data you are entitled to collect. Each place in the response should include a `place_url` (Maps URL) so the source stays traceable. If Google shows a CAPTCHA, the request fails with `captcha_detected` and is not retried automatically. For more than ten results per call, use `POST /api/v1/jobs` with `type: "places-google-maps"` (see `docs/places-usage-guide.md`).
 
 ## Product Direction
 

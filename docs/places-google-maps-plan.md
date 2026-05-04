@@ -35,33 +35,28 @@ Faz 0 checklist bu onayla kapatildi: plan gozden gecirildi, compliance bandi ve 
 
 ## 1. Yasal & Anti-bot Stratejisi (Karar Onceligi)
 
+> **Redis kota anahtari (uygulama):** `quota:places:{key_hash}:{YYYY-MM-DD}` — plandaki `places_quota:` yerine `quota:{namespace}:` kullanildi (`src/lib/quota.py`).
+
 ### 1.1 ToS Risk Azaltma
-- [ ] `docs/places-google-maps-plan.md` (bu dosya) icine "compliance" bolumu eklendi.
-- [ ] Public README'ye **"Bu provider sadece kamuya acik isletme verisi icindir; Google Maps ToS'unu sen okumalisin"** uyarisi eklenecek.
-- [ ] Sonuclarda `source_url` (Google Maps place URL) zorunlu — veri kaynagi izlenebilir kalsin.
-- [ ] PII alanlari minimum: telefon/website/adres OK; ozel inceleme/kullanici yorumu cekme YOK.
-- [ ] Per-API-key gunluk kota (Redis sayac): `places_quota:{key_hash}:{YYYY-MM-DD}`. Default 200 sorgu/gun.
-- [ ] Kullanici `--total` ust limiti **120** (DOM'dan tasidiginda Maps zaten kesiyor; 200+ talep abuse sinyali).
+- [x] Plan onayi bolumu + README’de compliance / ToS / kamuya acik veri uyarisi.
+- [x] Cevapta `place_url` alani (Maps URL) — kaynak izlenebilirligi (basarili kayitlarda doldurulur).
+- [x] PII minimum: adres/telefon/web sitesi; kullanici yorumu metni toplu cekilmiyor.
+- [x] Gunluk kota API anahtari basina (varsayilan 200, `PLACES_DAILY_QUOTA`).
+- [x] `total` ust limiti **120** (`GoogleMapsSearchRequest`).
 
 ### 1.2 Bot Tespiti Karsi Onlemler (mevcut StealthyFetcher pattern'inden)
-- [ ] `playwright-stealth` paketi (`tf-playwright-stealth` veya `playwright-stealth` aktif fork) — Scrapling'in StealthyFetcher'i da bunu kullaniyor.
-- [ ] Headless **true** ama Chromium argumanlariyla:
-  - `--disable-blink-features=AutomationControlled`
-  - `--no-sandbox`
-  - `--disable-dev-shm-usage`
-  - viewport 1366x768 / 1920x1080 random
-- [ ] User-Agent havuzu (5-10 modern Chrome UA), her job baslarken random sec.
-- [ ] `Accept-Language` header request'in `language` parametresine gore (`tr-TR,tr;q=0.9` veya `en-US,en;q=0.9`).
-- [ ] Maps'a dogrudan **arama URL'si** ile git: `https://www.google.com/maps/search/<encoded query>?hl=<lang>` — searchbox'a tiklamak yerine. Daha az event, daha az risk.
-- [ ] Scroll loop: her scroll arasinda `random.uniform(800, 1800)` ms bekle.
-- [ ] Place click arasinda `random.uniform(1200, 2500)` ms bekle.
-- [ ] CAPTCHA tespiti: `text=robot` / `iframe[src*="recaptcha"]` selector — varsa job'i `failed` + `error="captcha_detected"` ile bitir, retry **YAPMA** (cezayi buyutur).
-- [ ] (Opsiyonel — Faz 2) `PROXY_URL` env: residential/rotating proxy support. Default yok.
-- [ ] Concurrency: `max_jobs` default `1` bu provider icin. Arq tarafinda `places_jobs_max=1` ayri queue dusunulebilir (Faz 2). Faz 1: shared queue ama places job'lar icinde browser launch lock.
+- [x] `playwright-stealth` + headless Chromium + argumanlar (`browser.py`).
+- [x] UA havuzu (8) + rastgele viewport.
+- [x] `Accept-Language` basligi `language` ile (`browser.py` `extra_http_headers`).
+- [x] Dogrudan `/maps/search/...?hl=` URL ile gitme; detay sayfasina `goto(href)`.
+- [x] Scroll arasi 800–1800 ms; detay oncesi 1200–2500 ms.
+- [x] CAPTCHA: `recaptcha` iframe / form / “unusual traffic” / “i'm not a robot” metni; `error=captcha_detected`, **retry yok**.
+- [x] Opsiyonel proxy: `PLACES_PROXY_URL` (bos = kapali).
+- [ ] **Not:** Arq `max_jobs` simdilik **2** (scrape ile paylasimli); places icin **1** pilot sonrasi ayri karar.
 
 ### 1.3 Cache & Tekrar
-- [ ] Cache key: `places:gmaps:sha256(query|total|language|region)`, TTL **6 saat** (default 24h yerine kisa — fiyat/saat degisir).
-- [ ] Cache hit cevabi `cache_hit=true` ile doner; quota dusurulmez.
+- [x] Cache anahtari `places:gmaps:` + sha256(query,total,language,region); TTL **21600 s** (6 saat).
+- [x] Cache hit `cache_hit=true`; kota sadece cache miss yolunda (`search_places`).
 
 ---
 
@@ -133,21 +128,22 @@ tests/
 
 ### Faz 4 — Test (otomatik)
 - [x] `tests/unit/test_places_engine.py` + `tests/fixtures/maps_place_panel.html`
+- [x] `tests/unit/test_search_places_cache_quota.py` (cache hit kota atlamasi; kota asimi)
 - [x] `tests/integration/test_places_route.py`, `test_places_job.py`
 - [x] Mevcut pytest yesil
 - [ ] Manuel smoke (Docker + gercek query, or. `eczane konya` total=5)
 - [ ] Manuel CAPTCHA / hizli ardisik istek davranisi
 
 ### Faz 5 — Dokumantasyon & Yayin
-- [x] `docs/api.md`, `docs/client-integration.md`, `docs/lead-competitor-architecture.md`, `README.md`
+- [x] `docs/api.md`, `docs/client-integration.md`, `README.md` (lead mimari dokumanda Google Maps satiri istege bagli eklenebilir)
 - [x] `pyproject.toml` / `src/main.py` 0.2.0, `CHANGELOG.md`
 
 ### Faz 6 — Deploy
 - [ ] Local docker-compose ile end-to-end smoke (job + webhook).
-- [ ] Staging/VPS'te `docker compose -f docker-compose.prod.yml build scraper-service` (Chromium katmani buyur, ~500MB+ — boyut kabul edilebilir mi karar).
-- [ ] Nginx tarafinda yeni endpoint icin ozel ayar gerekmez (zaten `/api/v1/*` proxy'lenmis olmali — dogrula).
-- [ ] PM2 / systemd worker restart (mevcut Arq worker yeni function'i pickup etsin).
-- [ ] Pilot proje (GeoSerra veya QuickEcommerce) ile 1 hafta test, hata oranini gozle.
+- [ ] Staging/VPS'te `docker compose -f docker-compose.prod.yml build` (Chromium katmani ~500MB+).
+- [x] Nginx: `nginx/scraper.conf` tum path’i `http://api:8200`’e proxy’ler — `/api/v1/places/*` icin ayri location gerekmez.
+- [ ] PM2 / systemd worker restart (Arq `run_places_job` pickup).
+- [ ] Pilot (GeoSerra / QuickEcommerce) ~1 hafta gozlem.
 
 ---
 
@@ -227,12 +223,12 @@ POST /api/v1/jobs
 
 ## 6. Bilinmeyenler / Karar Bekleyenler
 
-- [ ] **Proxy stratejisi**: Faz 1'de hic mi yok, yoksa env destegi ekleyip kullanmayalim mi? (Oneri: env destegi ekle, default kapali.)
-- [ ] **Coordinates parse**: `place_url`'den `@lat,lng,zoom` regex ile cikarilabilir, ek istek yok. (Oneri: faz 1'e dahil.)
-- [ ] **Kullanici yorumlari**: Cekmiyoruz (PII riski). Karar: hayir.
-- [ ] **Email cikarma (place website'inden)**: Faz disi. Lead-monitor servisinin isi.
-- [ ] **Multi-region**: `region` query param simdilik `&gl=tr` shape'inde URL'ye bind. Test edilecek.
-- [ ] **Worker queue ayrimi**: Tek queue mi, places ayri queue mu? Faz 1: tek queue, `max_jobs=1` global.
+- [x] **Proxy:** `PLACES_PROXY_URL` env, varsayilan bos (kapali).
+- [x] **Koordinat:** `place_url` icinden `@lat,lng` regex (`google_maps.py`).
+- [x] **Kullanici yorumlari:** Cekilmiyor (PII riski) — karar: hayir.
+- [x] **Email:** Faz disi (lead-monitor).
+- [x] **Multi-region:** `region` -> `&gl=` (`_build_search_url`).
+- [ ] **Worker queue / max_jobs:** Tek queue; `max_jobs=2` — pilot sonrasi 1 veya ayri queue degerlendirmesi.
 
 ---
 
