@@ -6,6 +6,8 @@
 >
 > **Auth:** `Authorization: Bearer scraper-{project}-{secret}` formatinda API key.
 
+> **Hizli smoke (repo):** `./scripts/places-smoke.sh` — varsayilan `http://127.0.0.1:8200`. Production: `SCRAPER_URL=https://scraper.guezelwebdesign.com SCRAPER_API_KEY='scraper-...' ./scripts/places-smoke.sh`
+
 Bu rehber `scraper-service`'in `places/google-maps` endpoint'ini diger projelerden cagirmak icindir. Once kisa karar matrisi, sonra her stack icin kullanima hazir kod ornekleri.
 
 ---
