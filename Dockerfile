@@ -3,7 +3,9 @@ FROM pyd4vinci/scrapling:latest AS base
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && python -m playwright install chromium --with-deps \
+    || python -m playwright install chromium
 
 COPY src ./src
 

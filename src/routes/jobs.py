@@ -1,17 +1,19 @@
 import json
 from datetime import datetime, timezone
 from uuid import uuid4
+
 from arq import create_pool
 from fastapi import APIRouter, Depends, HTTPException, status
 from redis.asyncio import Redis
 
 from src.auth import ApiPrincipal, require_api_key
+from src.config import get_settings
 from src.lib.ratelimit import enforce_rate_limit
 from src.lib.redis_client import get_redis
 from src.schemas.job import JobCreateRequest, JobCreateResponse, JobStatus, JobStatusResponse
+from src.schemas.places import GoogleMapsSearchRequest
 from src.schemas.scrape import ScrapeRequest
 from src.workers.tasks import redis_settings_from_url
-from src.config import get_settings
 
 router = APIRouter(prefix="/api/v1", tags=["jobs"])
 
@@ -37,10 +39,15 @@ async def create_job(
 ) -> JobCreateResponse:
     await enforce_rate_limit(redis, principal.key_hash)
 
-    if payload.type != "scrape":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="spider_jobs_not_implemented_yet")
+    if payload.type == "scrape":
+        job_payload = ScrapeRequest.model_validate(payload.payload).model_dump(mode="json")
+        function_name = "run_scrape_job"
+    elif payload.type == "places-google-maps":
+        job_payload = GoogleMapsSearchRequest.model_validate(payload.payload).model_dump(mode="json")
+        function_name = "run_places_job"
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_job_type")
 
-    scrape_payload = ScrapeRequest.model_validate(payload.payload).model_dump(mode="json")
     job_id = uuid4().hex
     created_at = _now()
     await redis.hset(
@@ -58,14 +65,20 @@ async def create_job(
 
     pool = await create_pool(redis_settings_from_url(get_settings().redis_url))
     try:
-        await pool.enqueue_job(
-            "run_scrape_job",
-            job_id,
-            scrape_payload,
-            str(payload.callback_url) if payload.callback_url else None,
-            payload.callback_secret,
-            _job_id=job_id,
-        )
+        cb = str(payload.callback_url) if payload.callback_url else None
+        secret = payload.callback_secret
+        if function_name == "run_places_job":
+            await pool.enqueue_job(
+                function_name,
+                job_id,
+                job_payload,
+                cb,
+                secret,
+                principal.key_hash,
+                _job_id=job_id,
+            )
+        else:
+            await pool.enqueue_job(function_name, job_id, job_payload, cb, secret, _job_id=job_id)
     finally:
         await pool.close()
 

@@ -81,9 +81,53 @@ Response highlights:
 }
 ```
 
+## POST /api/v1/places/google-maps (sync)
+
+Returns up to **10** places per request (`total` must be ≤ 10). Larger batches must use `POST /api/v1/jobs` with `type: "places-google-maps"`. Daily cap per API key: `PLACES_DAILY_QUOTA` (default 200). Send `Cache-Control: no-cache` to bypass the six-hour Redis cache for that query.
+
+### Request
+
+```json
+{
+  "query": "diş hekimi konya",
+  "total": 5,
+  "language": "tr",
+  "region": "tr"
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "query": "diş hekimi konya",
+  "total_found": 5,
+  "duration_ms": 18450,
+  "cache_hit": false,
+  "fetched_at": "2026-05-04T10:12:00+00:00",
+  "places": [
+    {
+      "name": "Örnek Klinik",
+      "address": "Konya",
+      "website": "https://example.com",
+      "phone": "+90...",
+      "reviews_count": 124,
+      "reviews_average": 4.7,
+      "place_type": "Diş kliniği",
+      "opens_at": "08:00",
+      "introduction": null,
+      "place_url": "https://www.google.com/maps/place/...",
+      "coordinates": { "lat": 37.87, "lng": 32.49 }
+    }
+  ],
+  "error": null
+}
+```
+
 ## POST /api/v1/jobs
 
-Queues a long-running scrape. `spider` is reserved for the next milestone; F2 supports `scrape` jobs.
+Queues a long-running job. Supported types: `scrape`, `places-google-maps`. `spider` returns `400 unsupported_job_type` until implemented.
 
 ```json
 {
@@ -97,6 +141,24 @@ Queues a long-running scrape. `spider` is reserved for the next milestone; F2 su
   "callback_secret": "change-me-long-secret"
 }
 ```
+
+### `places-google-maps` job
+
+```json
+{
+  "type": "places-google-maps",
+  "payload": {
+    "query": "kuyumcu kayseri",
+    "total": 50,
+    "language": "tr",
+    "region": "tr"
+  },
+  "callback_url": "https://example.com/api/scraper/callback",
+  "callback_secret": "change-me-long-secret"
+}
+```
+
+Poll `GET /api/v1/jobs/{job_id}` or consume the webhook callback (same `X-Scraper-Signature` scheme as scrape jobs).
 
 ## GET /api/v1/jobs/{job_id}
 

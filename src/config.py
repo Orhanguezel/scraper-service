@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     default_timeout_seconds: int = Field(default=30, alias="DEFAULT_TIMEOUT_SECONDS")
     default_rate_limit_per_minute: int = Field(default=60, alias="DEFAULT_RATE_LIMIT_PER_MINUTE")
     log_level: str = Field(default="info", alias="LOG_LEVEL")
+    places_daily_quota: int = Field(default=200, alias="PLACES_DAILY_QUOTA")
+    places_proxy_url: str = Field(default="", alias="PLACES_PROXY_URL")
 
     @property
     def api_key_set(self) -> set[str]:

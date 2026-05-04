@@ -1,14 +1,13 @@
 import json
 from datetime import datetime, timezone
 from typing import Any
-from arq.connections import RedisSettings
+
 from redis.asyncio import Redis
 
 from src.config import get_settings
-from src.engine.service import perform_scrape
+from src.engine.places.google_maps import search_places
 from src.schemas.job import JobStatus
-from src.schemas.scrape import ScrapeRequest
-from src.workers.places_tasks import run_places_job
+from src.schemas.places import GoogleMapsSearchRequest
 from src.workers.webhook import post_callback
 
 
@@ -27,28 +26,40 @@ async def _store_job(redis: Redis, job_id: str, **fields: Any) -> None:
         await redis.expire(f"job:{job_id}", 86_400)
 
 
-async def run_scrape_job(
+async def run_places_job(
     ctx: dict[str, Any],
     job_id: str,
     payload: dict[str, Any],
     callback_url: str | None = None,
     callback_secret: str | None = None,
+    key_hash: str | None = None,
 ) -> dict[str, Any]:
     redis: Redis = ctx["redis"]
     await _store_job(redis, job_id, status=JobStatus.running.value, updated_at=utc_now())
+    kh = key_hash or "unknown"
 
     try:
-        request = ScrapeRequest.model_validate(payload)
-        result = await perform_scrape(request, redis)
+        request = GoogleMapsSearchRequest.model_validate(payload)
+        settings = get_settings()
+        proxy = settings.places_proxy_url.strip() or None
+        result = await search_places(request, redis, proxy_url=proxy, key_hash=kh)
         result_payload = result.model_dump(mode="json")
+        status = JobStatus.done.value if result.success else JobStatus.failed.value
+        err = result.error if not result.success else None
         await _store_job(
             redis,
             job_id,
-            status=JobStatus.done.value,
+            status=status,
             result=result_payload,
             updated_at=utc_now(),
+            error=err,
         )
-        callback_payload = {"job_id": job_id, "status": JobStatus.done.value, "result": result_payload, "error": None}
+        callback_payload = {
+            "job_id": job_id,
+            "status": status,
+            "result": result_payload,
+            "error": err,
+        }
         await post_callback(callback_url, callback_secret, callback_payload)
         return callback_payload
     except Exception as exc:
@@ -57,22 +68,3 @@ async def run_scrape_job(
         callback_payload = {"job_id": job_id, "status": JobStatus.failed.value, "result": None, "error": error}
         await post_callback(callback_url, callback_secret, callback_payload)
         return callback_payload
-
-
-def redis_settings_from_url(url: str) -> RedisSettings:
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    return RedisSettings(
-        host=parsed.hostname or "redis",
-        port=parsed.port or 6379,
-        database=int((parsed.path or "/0").lstrip("/") or "0"),
-        password=parsed.password,
-    )
-
-
-class WorkerSettings:
-    functions = [run_scrape_job, run_places_job]
-    redis_settings = redis_settings_from_url(get_settings().redis_url)
-    max_jobs = 2
-    job_timeout = 600

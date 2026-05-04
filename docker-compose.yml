@@ -4,6 +4,7 @@ services:
     env_file: .env
     ports:
       - "8200:8200"
+    shm_size: 1gb
     depends_on:
       - redis
     restart: unless-stopped
@@ -12,6 +13,7 @@ services:
     build: .
     env_file: .env
     command: ["arq", "src.workers.tasks.WorkerSettings"]
+    shm_size: 1gb
     depends_on:
       - redis
     restart: unless-stopped

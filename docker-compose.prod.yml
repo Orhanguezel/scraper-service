@@ -1,5 +1,6 @@
 services:
   api:
+    shm_size: 1gb
     restart: unless-stopped
     deploy:
       resources:
@@ -9,6 +10,7 @@ services:
       - "8200"
 
   worker:
+    shm_size: 1gb
     restart: unless-stopped
     deploy:
       resources:

@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
+
 from pydantic import BaseModel, Field, HttpUrl
 
 from src.schemas.scrape import ScrapeRequest, ScrapeResponse
@@ -14,8 +15,8 @@ class JobStatus(str, Enum):
 
 
 class JobCreateRequest(BaseModel):
-    type: Literal["scrape", "spider"] = "scrape"
-    payload: ScrapeRequest | dict[str, Any]
+    type: Literal["scrape", "spider", "places-google-maps"] = "scrape"
+    payload: dict[str, Any]
     callback_url: HttpUrl | None = None
     callback_secret: str | None = Field(default=None, min_length=8)
 
@@ -32,5 +33,5 @@ class JobStatusResponse(BaseModel):
     type: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    result: ScrapeResponse | dict[str, Any] | None = None
+    result: Any | None = None
     error: str | None = None

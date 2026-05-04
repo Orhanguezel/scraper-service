@@ -86,17 +86,22 @@ docs/
   places-google-maps-plan.md   [BU DOSYA]
 tests/
   unit/
-    test_places_extract.py     [YENI] HTML fixture'tan parse testi
+    test_places_engine.py      [YENI] URL/koordinat + HTML fixture parse
+    test_quota.py              [YENI] gunluk kota
+    test_browser.py            [YENI] UA/args sabitleri
   integration/
-    test_places_route.py       [YENI] mock'lu route testi
+    test_places_route.py       [YENI] mock engine + auth + total limit
+    test_places_job.py         [YENI] job enqueue + scrape regression
 ```
 
-**Dokunulmayacak dosyalar (regression riski):**
-- `src/main.py` (sadece router include eklenecek)
-- `src/routes/scrape.py`, `src/routes/jobs.py`
-- `src/engine/service.py`, `src/engine/fetcher.py`, `src/engine/extractors.py`
-- `src/schemas/scrape.py`, `src/schemas/job.py`
-- `src/workers/tasks.py` (ayri dosyaya yazacagiz, WorkerSettings.functions listesine ekleme)
+**Dokunulmayacak dosyalar (Places disi regression riski):**
+- `src/routes/scrape.py`, `src/engine/service.py`, `src/engine/fetcher.py`, `src/engine/extractors.py`, `src/schemas/scrape.py`
+
+**Places ile sinirli genisletme (planla uyumlu):**
+- `src/main.py` (router include + versiyon)
+- `src/routes/jobs.py` (job type branch + enqueue arg)
+- `src/workers/tasks.py` (`WorkerSettings.functions`, `job_timeout`)
+- `src/schemas/job.py` (`JobCreateRequest.type`, `payload` dict, `JobStatusResponse.result`)
 
 ---
 
@@ -108,75 +113,34 @@ tests/
 - [x] Faz bolusumu: **1A → 1B → 1C → 2A → 2B → 3 → 4 → 5** ayri Composer oturumlari (PR birlestirme ayri karar).
 
 ### Faz 1 — Schema & Iskelet
-- [ ] `src/schemas/places.py`:
-  - [ ] `GoogleMapsSearchRequest` (query, total<=120, language, region, options)
-  - [ ] `Place` (name, address, website, phone, reviews_count, reviews_average, place_type, opens_at, introduction, place_url, coordinates)
-  - [ ] `GoogleMapsSearchResponse` (success, query, total_found, places, duration_ms, fetched_at, cache_hit, error)
-  - [ ] `PlacesOptions` (timeout, language, headless=True forced, user_agent override yok — guvenlik)
-- [ ] `src/lib/quota.py`:
-  - [ ] `enforce_daily_quota(redis, key_hash, namespace, limit)` fonksiyonu
-  - [ ] Rate-limit yaninda cagrilacak (mevcut `ratelimit.py`'a dokunma)
-- [ ] `src/engine/places/browser.py`:
-  - [ ] `UA_POOL` listesi
-  - [ ] `async launch_stealth_context(language)` — playwright async, stealth args, random UA, viewport
-  - [ ] CAPTCHA detect helper
-- [ ] `src/engine/places/google_maps.py`:
-  - [ ] `async search_places(req) -> GoogleMapsSearchResponse`
-  - [ ] Search URL pattern (`/maps/search/...?hl=`), arama girisi yok
-  - [ ] Scroll-until-enough loop (random sleep)
-  - [ ] Listing toplama, deduplicate by place URL
-  - [ ] Her listing icin click + extract (mevcut XPath'ler `main.py`'den + place_url + lat/lng URL'den parse)
-  - [ ] CAPTCHA / consent dialog handling (`text=Reddet` / `Reject all` gibi)
-  - [ ] Cache wrap (`places:gmaps:` prefix)
+- [x] `src/schemas/places.py` (PlacesOptions.timeout; headless istemci tarafindan verilemez — sunucu zorunlu headless)
+- [x] `src/lib/quota.py` + `tests/unit/test_quota.py`
+- [x] `src/engine/places/browser.py` (UA_POOL, launch 3-lu Playwright+Browser+Context, CAPTCHA, consent)
+- [x] `src/engine/places/google_maps.py` (arama URL, scroll, listing href dedupe, detay `goto`, quota sadece cache miss, `places:gmaps:` cache)
 
 ### Faz 2 — API & Job
-- [ ] `src/routes/places.py`:
-  - [ ] `POST /api/v1/places/google-maps` (sync, **total<=10 zorunlu**, daha buyukse 400 + "use job endpoint")
-  - [ ] `require_api_key` + `enforce_rate_limit` + `enforce_daily_quota("places", 200)`
-  - [ ] `cache-control: no-cache` header destegi (mevcut scrape gibi)
-- [ ] `src/workers/places_tasks.py`:
-  - [ ] `async run_places_job(ctx, job_id, payload, callback_url, callback_secret)`
-  - [ ] Status update + webhook callback (mevcut `tasks.py` patternini birebir taklit et, kod kopyala — abstract'e gerek yok)
-- [ ] `src/workers/tasks.py` icindeki `WorkerSettings.functions` listesine `run_places_job` import + ekle (TEK satirlik degisiklik, regression riski dusuk).
-- [ ] `src/routes/jobs.py` icindeki `JobCreateRequest.type` literal'ina `"places-google-maps"` ekle:
-  - [ ] `payload` validasyonu type'a gore branch
-  - [ ] `pool.enqueue_job("run_places_job", ...)` cagrisi
-  - [ ] Mevcut `"scrape"` davranisi **AYNEN** kalmali — switch/case ile ayir, `if/elif` yapısı kur.
-- [ ] `src/main.py`'a `places_router` include et.
+- [x] `src/routes/places.py` (sync total<=10, rate limit, cache-control; kota `search_places` icinde cache miss)
+- [x] `src/workers/places_tasks.py` + `run_places_job` + `key_hash` enqueue
+- [x] `src/workers/tasks.py` (`WorkerSettings.functions`, `job_timeout` 600)
+- [x] `src/routes/jobs.py` + `src/schemas/job.py` (`places-google-maps`, payload dict)
+- [x] `src/main.py` places router
 
 ### Faz 3 — Bagimliliklar & Build
-- [ ] `requirements.txt`:
-  - [ ] `playwright>=1.44.0,<2.0.0`
-  - [ ] `playwright-stealth>=1.0.6` (veya `tf-playwright-stealth`)
-- [ ] `Dockerfile`:
-  - [ ] `RUN python -m playwright install chromium --with-deps` (base image'da varsa skip — kontrol)
-  - [ ] Ekstra Chromium dependency'lerini kontrol (`libnss3`, `libxkbcommon0` vb. base'de olmali ama dogrula)
-- [ ] `docker-compose.yml` ve `docker-compose.prod.yml`:
-  - [ ] Worker service'in `shm_size: 1gb` ayarla (Chromium icin sart, yoksa crash).
-  - [ ] `PLACES_DAILY_QUOTA` env eklenebilir (default 200).
-- [ ] `.env.example`'a:
-  - [ ] `PLACES_DAILY_QUOTA=200`
-  - [ ] `PLACES_PROXY_URL=` (bos default, dokumantasyonu var)
+- [x] `requirements.txt` (+ `setuptools<81` / `pkg_resources` — `playwright-stealth` uyumu)
+- [x] `Dockerfile` chromium install
+- [x] `docker-compose.yml` / `docker-compose.prod.yml` `shm_size: 1gb`
+- [x] `.env.example` PLACES\_*
 
-### Faz 4 — Test
-- [ ] `tests/unit/test_places_extract.py`:
-  - [ ] Sabit HTML fixture (Maps detay paneli kopyasi) ile `extract_place_from_dom` parse testi
-  - [ ] Eksik alan toleransi (yorum yok, telefon yok vb.)
-- [ ] `tests/integration/test_places_route.py`:
-  - [ ] Engine'i mock'la, route 202/200 + auth + quota davranisi
-  - [ ] Cache hit testi
-  - [ ] Quota asimi -> 429 testi
-- [ ] Mevcut `pytest`'in kirilmadigini dogrula (`bun run` analogu yok, dogrudan `pytest` veya `uv run pytest`).
-- [ ] Manuel smoke: tek query (`"eczane konya"`, total=5) job ile cek, cevabi gor.
-- [ ] Manuel CAPTCHA testi: bilerek hizli ardisik 5 job at, `captcha_detected` error donmesini ve retry yapmamasini dogrula.
+### Faz 4 — Test (otomatik)
+- [x] `tests/unit/test_places_engine.py` + `tests/fixtures/maps_place_panel.html`
+- [x] `tests/integration/test_places_route.py`, `test_places_job.py`
+- [x] Mevcut pytest yesil
+- [ ] Manuel smoke (Docker + gercek query, or. `eczane konya` total=5)
+- [ ] Manuel CAPTCHA / hizli ardisik istek davranisi
 
 ### Faz 5 — Dokumantasyon & Yayin
-- [ ] `docs/api.md`'ye `/api/v1/places/google-maps` endpoint'i + ornek payload + response.
-- [ ] `docs/client-integration.md`'ye TypeScript ornegi (job create + poll).
-- [ ] `docs/lead-competitor-architecture.md`'da "source_type=google-maps" provider olarak referans ver.
-- [ ] `README.md`'ye 1 paragraf compliance uyarisi.
-- [ ] Versiyon bump: `pyproject.toml` 0.1.0 -> 0.2.0.
-- [ ] CHANGELOG (yoksa olustur).
+- [x] `docs/api.md`, `docs/client-integration.md`, `docs/lead-competitor-architecture.md`, `README.md`
+- [x] `pyproject.toml` / `src/main.py` 0.2.0, `CHANGELOG.md`
 
 ### Faz 6 — Deploy
 - [ ] Local docker-compose ile end-to-end smoke (job + webhook).

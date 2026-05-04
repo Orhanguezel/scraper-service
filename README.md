@@ -34,3 +34,16 @@ curl -X POST http://127.0.0.1:8200/api/v1/jobs \
   -H 'Content-Type: application/json' \
   -d '{"type":"scrape","payload":{"url":"https://example.com","mode":"fast","return_text":true}}'
 ```
+
+## Places provider (Google Maps)
+
+`POST /api/v1/places/google-maps` extracts publicly visible business listings from Google Maps using a headless browser. Use it only for data you are entitled to collect. Reading and complying with Google Maps Terms of Service is your responsibility. If Google shows a CAPTCHA, the request fails with `captcha_detected` and is not retried automatically. For more than ten results per call, use `POST /api/v1/jobs` with `type: "places-google-maps"` (see `docs/places-usage-guide.md`).
+
+## Product Direction
+
+Lead generation and competitor monitoring documents:
+
+- [Product note](docs/lead-competitor-product.md)
+- [MVP scope](docs/lead-competitor-mvp.md)
+- [Technical architecture](docs/lead-competitor-architecture.md)
+- [Roadmap](docs/lead-competitor-roadmap.md)
