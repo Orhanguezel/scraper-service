@@ -1,0 +1,34 @@
+# Google Maps places provider — scraper-service
+
+Mimari ve faz talimatlari: `docs/places-google-maps-plan.md`, `docs/places-cursor-implementation.md` (okuma zorunlu).
+
+## Zorunluluklar
+
+1. **Mevcut akisi bozma**: `src/routes/scrape.py`, `src/engine/service.py`, `src/engine/fetcher.py`, `src/engine/extractors.py`, `src/schemas/scrape.py` dosyalarina dokunma. Sadece su dosyalara **tek satirlik** (veya planla sinirli) ek yapilabilir:
+   - `src/main.py` (router include)
+   - `src/routes/jobs.py` (type literal + branch)
+   - `src/workers/tasks.py` (`WorkerSettings.functions` listesi)
+
+2. **Stack**: Python 3.11+, FastAPI, Pydantic v2, Redis async, Arq, `playwright.async_api`, playwright-stealth (Faz 3’te bagimlilik).
+
+3. **Patterns**:
+   - Mevcut auth (`require_api_key`) ve rate-limit (`enforce_rate_limit`) aynen kullan.
+   - Mevcut webhook pattern’i (`post_callback`, `X-Scraper-Signature`) aynen kullan.
+   - Cache ve quota Redis uzerinden; key prefix `places:gmaps:` ve `quota:places:` (veya planda tanimli quota key formati).
+
+4. **Anti-bot**:
+   - `headless=True` zorunlu; kullanici override edemez.
+   - CAPTCHA sonrasi **retry yok**; job/yanit failed + `captcha_detected`.
+   - Rastgele bekleme: scroll arasi 800–1800 ms, tiklama arasi 1200–2500 ms.
+   - `total` en fazla 120.
+
+5. **Test**: Yeni davranis icin pytest; mevcut testleri kirma.
+
+6. **Kod stili**: type hints, async/await tutarli; magic number’lari config/sabitlere cek.
+
+7. **Yorum**: Sadece *neden* (WHY); WHAT kodda.
+
+## Reddedilecek oneriler
+
+- Scrapling fetcher’lari Maps SPA icin “ana yol” olarak kullanmak (places tarafinda playwright kullan).
+- Mevcut scrape dosyalarinda refactor / “temizlik” (scope disi, ayri PR).
