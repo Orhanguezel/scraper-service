@@ -2,8 +2,9 @@ services:
   api:
     build: .
     env_file: .env
+    # Sadece localhost (Nginx reverse proxy üzerinden erişim)
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
     shm_size: 1gb
     depends_on:
       - redis
