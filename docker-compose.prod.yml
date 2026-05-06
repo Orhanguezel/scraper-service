@@ -1,16 +1,17 @@
 services:
   api:
-    shm_size: 1gb
+    # Headless Chromium / Patchright: RAM + /dev/shm aynı ölçekte tutulur (OOM ve crash azaltır).
+    shm_size: 2gb
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 2G
     expose:
       - "8200"
 
   worker:
-    shm_size: 1gb
+    shm_size: 2gb
     restart: unless-stopped
     deploy:
       resources:
