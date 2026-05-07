@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     log_level: str = Field(default="info", alias="LOG_LEVEL")
     places_daily_quota: int = Field(default=200, alias="PLACES_DAILY_QUOTA")
     places_proxy_url: str = Field(default="", alias="PLACES_PROXY_URL")
+    lead_daily_quota: int = Field(default=500, alias="LEAD_DAILY_QUOTA")
+    directory_daily_quota: int = Field(default=200, alias="DIRECTORY_DAILY_QUOTA")
+    fair_daily_quota: int = Field(default=100, alias="FAIR_DAILY_QUOTA")
+    fair_proxy_url: str = Field(default="", alias="FAIR_PROXY_URL")
 
     @property
     def api_key_set(self) -> set[str]:

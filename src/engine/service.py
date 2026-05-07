@@ -3,7 +3,16 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from redis.asyncio import Redis
 
-from src.engine.extractors import extract_basic_page_data, extract_geo_page, extract_geo_robots
+from src.engine.extractors import (
+    extract_basic_page_data,
+    extract_competitor_page,
+    extract_directory_listing,
+    extract_fair_exhibitor,
+    extract_geo_page,
+    extract_geo_robots,
+    extract_lead_page,
+    extract_website_analysis,
+)
 from src.engine.fetcher import fetch_page
 from src.engine.selectors import extract_selectors
 from src.lib.cache import build_cache_key, get_cached, set_cached
@@ -51,6 +60,17 @@ async def perform_scrape(
         data = extract_geo_page(fetched.html, str(payload.url), fetched.response)
     elif payload.profile == "geo-robots":
         data = extract_geo_robots(fetched.text or fetched.html, str(fetch_payload.url), fetched.status_code)
+    elif payload.profile in ("lead-page", "website-analysis"):
+        if payload.profile == "lead-page":
+            data = extract_lead_page(fetched.html, str(payload.url), fetched.response)
+        else:
+            data = extract_website_analysis(fetched.html, str(payload.url), fetched.response)
+    elif payload.profile == "directory-listing":
+        data = extract_directory_listing(fetched.html, str(payload.url), fetched.response)
+    elif payload.profile == "fair-exhibitor":
+        data = extract_fair_exhibitor(fetched.html, str(payload.url), fetched.response)
+    elif payload.profile == "competitor-page":
+        data = extract_competitor_page(fetched.html, str(payload.url), fetched.response)
     else:
         data = extract_basic_page_data(fetched.response)
         data.update(extract_selectors(fetched.response, payload.selectors))

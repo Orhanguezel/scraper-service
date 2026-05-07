@@ -45,6 +45,9 @@ async def create_job(
     elif payload.type == "places-google-maps":
         job_payload = GoogleMapsSearchRequest.model_validate(payload.payload).model_dump(mode="json")
         function_name = "run_places_job"
+    elif payload.type == "spider":
+        job_payload = dict(payload.payload)
+        function_name = "run_spider_job"
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_job_type")
 

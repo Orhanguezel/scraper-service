@@ -1,12 +1,47 @@
 {
-  "name": "Scraper Service",
+  "title": "Scraper Service",
   "slug": "scraper-service",
-  "type": "microservice",
-  "status": "development",
-  "stack": ["Python", "FastAPI", "Scrapling", "Redis", "Docker"],
-  "ports": {
-    "api": 8200,
-    "redis": 6390
-  },
-  "description": "Central Scrapling-powered web scraping gateway for portfolio projects."
+  "summary": "Playwright tabanlı merkezi web scraping mikro-servisi. Portfolio projelerinin scraping ihtiyaçlarını tek noktadan karşılar; Google Maps, B2B dizin, fuar ve şirket sitesi analizi profilleri sunar.",
+  "description": "Python FastAPI + Scrapling + Playwright stealth motoruyla çalışan merkezi scraping gateway. Sync ve async (arq job queue + webhook callback) modlarında çalışır. Redis cache, HMAC-SHA256 imzalı callback, günlük kota ve çoklu scraping profili destekler. MarketPulse Lead Machine'in tüm scraping ihtiyaçlarını karşılar.",
+  "category": "SERVICE PLATFORM",
+  "services": [
+    "Backend Development",
+    "Web Scraping",
+    "API Development",
+    "DevOps"
+  ],
+  "techs": [
+    "Python",
+    "FastAPI",
+    "Scrapling",
+    "Playwright",
+    "Redis",
+    "arq",
+    "Docker"
+  ],
+  "features": [
+    "POST /api/v1/scrape — sync scrape (profiller: geo-page, geo-robots, lead-page, website-analysis, directory-listing, fair-exhibitor, competitor-page)",
+    "POST /api/v1/places/google-maps — Google Maps sync arama (≤10 sonuç)",
+    "POST /api/v1/jobs — async job (scrape, places-google-maps, spider tipleri)",
+    "GET /api/v1/jobs/{job_id} — job durum sorgulama",
+    "arq job queue + HMAC-SHA256 imzalı webhook callback",
+    "Redis cache (places: 6s TTL, scrape: 24h TTL)",
+    "Playwright stealth modu + Cloudflare bypass desteği",
+    "API key auth (Bearer token, Redis destekli)",
+    "Günlük kota sistemi (lead/directory/fair profilleri)"
+  ],
+  "featured": false,
+  "displayOrder": 99,
+  "status": "active",
+  "startDate": "2026-01-01",
+  "completeDate": null,
+  "completionTimeLabel": null,
+  "repoUrl": null,
+  "websiteUrl": null,
+  "demoUrl": null,
+  "featuredImage": null,
+  "featuredImageAlt": null,
+  "resumeTitle": "Scraper Service",
+  "resumeSubtitle": "SERVICE PLATFORM",
+  "excludeFromPortfolio": true
 }

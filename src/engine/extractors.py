@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from typing import Any
@@ -78,6 +79,411 @@ def extract_basic_page_data(page: Any) -> dict[str, Any]:
         "canonical": str(canonical) if canonical is not None else None,
         "h1_tags": [str(item) for item in h1_tags],
         "structured_data": structured_data,
+    }
+
+
+PHONE_RE = re.compile(r"(?:\+|00)?[0-9][0-9\s().\-/]{7,}[0-9]")
+EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+B2B_TERMS = [
+    "b2b",
+    "wholesale",
+    "distributor",
+    "importer",
+    "exporter",
+    "private label",
+    "oem",
+    "odm",
+    "bulk order",
+    "toptan",
+    "distribütör",
+    "distributor",
+    "ithalat",
+    "ihracat",
+    "bayi",
+]
+AUTOMOTIVE_TERMS = [
+    "automotive",
+    "auto accessories",
+    "car accessories",
+    "floor mats",
+    "car mat",
+    "cargo liner",
+    "oto aksesuar",
+    "oto paspas",
+    "paspas",
+    "bagaj havuzu",
+]
+
+
+def _visible_text(sel: Selector) -> str:
+    return str(sel.get_all_text(separator=" ", strip=True, ignore_tags=("script", "style")))
+
+
+def _json_ld(sel: Selector) -> list[Any]:
+    items: list[Any] = []
+    for raw in sel.css('script[type="application/ld+json"]::text').getall():
+        try:
+            parsed = json.loads(str(raw).strip())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, list):
+            items.extend(parsed)
+        elif isinstance(parsed, dict) and isinstance(parsed.get("@graph"), list):
+            items.extend(parsed["@graph"])
+        else:
+            items.append(parsed)
+    return items
+
+
+def _domain(url: str) -> str:
+    return urlparse(url).netloc.replace("www.", "")
+
+
+def _extract_contact(text: str) -> dict[str, list[str]]:
+    emails = sorted(set(EMAIL_RE.findall(text)))
+    phones = sorted({re.sub(r"\s+", " ", item).strip() for item in PHONE_RE.findall(text)})[:10]
+    return {"emails": emails, "phones": phones}
+
+
+def _link_records(sel: Selector, final_url: str) -> list[dict[str, str]]:
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for link in sel.css("a[href]"):
+        attrs = _attrs(link)
+        href = urljoin(final_url, str(attrs.get("href", "")))
+        if href in seen or not href.startswith(("http://", "https://")):
+            continue
+        seen.add(href)
+        links.append({"url": href, "text": str(link.get_all_text(separator=" ", strip=True))})
+    return links
+
+
+def _social_profiles_from_links(links: list[dict[str, str]]) -> list[dict[str, str]]:
+    patterns = {
+        "facebook": r"(?:facebook\.com|fb\.com)/(?!sharer|share)",
+        "instagram": r"instagram\.com/",
+        "linkedin": r"linkedin\.com/(?:company|in)/",
+        "youtube": r"youtube\.com/(?:channel|c|@|user)/",
+        "x": r"(?:twitter\.com|x\.com)/(?!intent|share)",
+        "tiktok": r"tiktok\.com/@",
+    }
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in links:
+        url = item["url"]
+        for platform, pattern in patterns.items():
+            if platform not in seen and re.search(pattern, url, re.I):
+                out.append({"platform": platform, "url": url})
+                seen.add(platform)
+    return out
+
+
+def _first_json_org(items: list[Any]) -> dict[str, Any]:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw_type = item.get("@type")
+        types = raw_type if isinstance(raw_type, list) else [raw_type]
+        if any(t in {"Organization", "LocalBusiness", "Corporation", "Store"} for t in types):
+            return item
+    return {}
+
+
+def extract_website_analysis(html: str, url: str, response: Any) -> dict[str, Any]:
+    sel = Selector(html or "", url=url)
+    final_url = getattr(response, "url", url) or url
+    text = _visible_text(sel)
+    lower_text = text.lower()
+    links = _link_records(sel, final_url)
+    json_ld = _json_ld(sel)
+    org = _first_json_org(json_ld)
+    contact = _extract_contact(text)
+    b2b_signals = [term for term in B2B_TERMS if term in lower_text]
+    product_signals = [term for term in AUTOMOTIVE_TERMS if term in lower_text]
+    contact_links = [
+        item for item in links
+        if re.search(r"contact|about|iletisim|hakkimizda|impressum|kontakt", item["url"] + " " + item["text"], re.I)
+    ][:10]
+    return {
+        "profile": "website-analysis",
+        "url": url,
+        "final_url": final_url,
+        "domain": _domain(final_url),
+        "title": _first(sel, "title::text"),
+        "description": _first(sel, 'meta[name="description"]::attr(content)'),
+        "company_name": org.get("name") or _first(sel, "h1::text") or _first(sel, "title::text"),
+        "contact": contact,
+        "social_profiles": _social_profiles_from_links(links),
+        "b2b_signals": b2b_signals,
+        "product_signals": product_signals,
+        "is_likely_b2b": bool(b2b_signals),
+        "sells_automotive_accessories": bool(product_signals),
+        "private_label_signal": any(term in lower_text for term in ("private label", "oem", "odm", "özel marka")),
+        "china_signal": any(term in lower_text for term in ("china", "çin", "import from china", "made in china")),
+        "contact_links": contact_links,
+        "structured_organization": org,
+        "text": text[:8000],
+    }
+
+
+def _candidate_blocks(sel: Selector) -> list[Any]:
+    selectors = [
+        "article",
+        ".company",
+        ".company-card",
+        ".listing",
+        ".listing-item",
+        ".result",
+        ".result-item",
+        ".supplier",
+        ".exhibitor",
+        ".exhibitor-card",
+        ".card",
+        "li",
+    ]
+    blocks: list[Any] = []
+    seen_text: set[str] = set()
+    for css in selectors:
+        for node in sel.css(css):
+            text = str(node.get_all_text(separator=" ", strip=True))
+            if len(text) < 8 or text in seen_text:
+                continue
+            seen_text.add(text)
+            blocks.append(node)
+            if len(blocks) >= 120:
+                return blocks
+    return blocks
+
+
+def _listing_from_node(node: Any, final_url: str) -> dict[str, Any] | None:
+    text = str(node.get_all_text(separator=" ", strip=True))
+    if len(text) < 8:
+        return None
+    link_sel = node.css("a[href]")
+    link_node = link_sel.first if link_sel else None
+    link = _attrs(link_node).get("href") if link_node else None
+    website = urljoin(final_url, str(link)) if link else None
+    name = _text(node.css("h1::text, h2::text, h3::text, a::text").get(default=None))
+    if not name:
+        name = text.split("  ")[0].split("\n")[0][:120].strip()
+    contact = _extract_contact(text)
+    return {
+        "name": name,
+        "website": website,
+        "description": text[:1000],
+        "email": contact["emails"][0] if contact["emails"] else None,
+        "phone": contact["phones"][0] if contact["phones"] else None,
+        "source_url": final_url,
+    }
+
+
+def extract_directory_listing(html: str, url: str, response: Any) -> dict[str, Any]:
+    sel = Selector(html or "", url=url)
+    final_url = getattr(response, "url", url) or url
+    companies: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _json_ld(sel):
+        if not isinstance(item, dict):
+            continue
+        raw_type = item.get("@type")
+        types = raw_type if isinstance(raw_type, list) else [raw_type]
+        if not any(t in {"Organization", "LocalBusiness", "Store"} for t in types):
+            continue
+        name = _text(item.get("name"))
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        companies.append({
+            "name": name,
+            "website": item.get("url"),
+            "description": item.get("description"),
+            "email": item.get("email"),
+            "phone": item.get("telephone"),
+            "address": item.get("address"),
+            "source_url": final_url,
+        })
+    for node in _candidate_blocks(sel):
+        record = _listing_from_node(node, final_url)
+        if not record or not record.get("name"):
+            continue
+        key = str(record["name"]).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        companies.append(record)
+        if len(companies) >= 100:
+            break
+    return {
+        "profile": "directory-listing",
+        "url": url,
+        "final_url": final_url,
+        "count": len(companies),
+        "companies": companies,
+    }
+
+
+def _booth_number(text: str) -> str | None:
+    stand = re.search(r"(?:booth|stand|stant)\s*[:#-]?\s*([A-Z]?\d+[A-Z0-9.\-/]*)", text, re.I)
+    if stand:
+        return stand.group(1).strip()
+    hall = re.search(r"(?:hall|salon)\s*[:#-]?\s*([A-Z]?\d+[A-Z0-9.\-/]*)", text, re.I)
+    return hall.group(1).strip() if hall else None
+
+
+def extract_fair_exhibitor(html: str, url: str, response: Any) -> dict[str, Any]:
+    sel = Selector(html or "", url=url)
+    final_url = getattr(response, "url", url) or url
+    exhibitors: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for node in _candidate_blocks(sel):
+        record = _listing_from_node(node, final_url)
+        if not record or not record.get("name"):
+            continue
+        key = str(record["name"]).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        record["booth_number"] = _booth_number(str(record.get("description") or ""))
+        exhibitors.append(record)
+        if len(exhibitors) >= 150:
+            break
+    return {
+        "profile": "fair-exhibitor",
+        "url": url,
+        "final_url": final_url,
+        "count": len(exhibitors),
+        "exhibitors": exhibitors,
+    }
+
+
+FIRM_TYPE_TERMS = [
+    "distributor", "importer", "wholesaler", "retailer", "manufacturer",
+    "distribütör", "ithalatçı", "toptancı", "perakendeci", "üretici",
+    "exporter", "ihracatçı", "supplier", "tedarikçi", "reseller", "bayi",
+]
+
+CHINA_TERMS = ["china", "çin", "made in china", "import from china", "çin malı"]
+PRIVATE_LABEL_TERMS = ["private label", "white label", "özel marka", "oem", "odm"]
+
+PRICE_RE = re.compile(r"(?:[€$₺£]\s*\d{1,6}[.,]\d{2}|\d{1,6}[.,]\d{2}\s*[€$₺£])")
+CAMPAIGN_RE = re.compile(r"\b(?:sale|indirim|%\s*off|discount|kampanya|fırsat|outlet|clearance)\b", re.I)
+
+
+def _currency_hint(price_text: str) -> str:
+    for symbol, name in [("€", "EUR"), ("$", "USD"), ("₺", "TRY"), ("£", "GBP")]:
+        if symbol in price_text:
+            return name
+    return "UNKNOWN"
+
+
+def extract_lead_page(html: str, url: str, response: Any) -> dict[str, Any]:
+    sel = Selector(html or "", url=url)
+    final_url = getattr(response, "url", url) or url
+    text = _visible_text(sel)
+    lower_text = text.lower()
+    links = _link_records(sel, final_url)
+    contact = _extract_contact(text)
+
+    tel_links = [
+        str(a.attrib.get("href", "")).replace("tel:", "").strip()
+        for a in sel.css("a[href^='tel:']")
+        if str(a.attrib.get("href", "")).replace("tel:", "").strip()
+    ]
+    phones = sorted(set(contact["phones"] + tel_links))
+
+    heading_texts = [str(t).strip() for t in sel.css("h1::text, h2::text, h3::text").getall() if str(t).strip()]
+    nav_texts = [str(t).strip() for t in sel.css("nav a::text, header a::text").getall() if str(t).strip()]
+    product_keywords = list(dict.fromkeys(heading_texts + nav_texts))[:50]
+
+    return {
+        "profile": "lead-page",
+        "url": url,
+        "final_url": final_url,
+        "title": _first(sel, "title::text"),
+        "description": _first(sel, 'meta[name="description"]::attr(content)'),
+        "text_content": text[:8000],
+        "has_b2b_signals": any(term in lower_text for term in B2B_TERMS),
+        "has_china_signals": any(term in lower_text for term in CHINA_TERMS),
+        "has_private_label": any(term in lower_text for term in PRIVATE_LABEL_TERMS),
+        "contact_emails": contact["emails"],
+        "contact_phones": phones,
+        "social_profiles": _social_profiles_from_links(links),
+        "firm_type_hints": [term for term in FIRM_TYPE_TERMS if term in lower_text],
+        "product_keywords": product_keywords,
+    }
+
+
+def extract_competitor_page(html: str, url: str, response: Any) -> dict[str, Any]:
+    sel = Selector(html or "", url=url)
+    final_url = getattr(response, "url", url) or url
+    text = _visible_text(sel)
+
+    prices: list[dict[str, Any]] = []
+    for match in PRICE_RE.findall(text)[:50]:
+        idx = text.find(match)
+        context = text[max(0, idx - 60) : idx + 60 + len(match)].strip()
+        prices.append({"text": match.strip(), "context": context, "currency_hint": _currency_hint(match)})
+
+    products: list[dict[str, Any]] = []
+    for item in _json_ld(sel):
+        if not isinstance(item, dict):
+            continue
+        raw_type = item.get("@type")
+        types = raw_type if isinstance(raw_type, list) else [raw_type]
+        if "Product" not in types:
+            continue
+        name = _text(item.get("name"))
+        if not name:
+            continue
+        price: str | None = None
+        offers = item.get("offers")
+        if isinstance(offers, dict):
+            price = str(offers.get("price", "")) or None
+        elif isinstance(offers, list) and offers:
+            price = str(offers[0].get("price", "")) or None
+        products.append({"name": name, "price": price, "url": _text(item.get("url"))})
+
+    if not products:
+        for card in sel.css(".product, .product-card, [class*='product'], [class*='item']")[:30]:
+            name = _text(card.css("h2::text, h3::text, .name::text, .title::text").get(default=None))
+            if not name:
+                continue
+            price_el = _text(card.css(".price::text, [class*='price']::text").get(default=None))
+            link = card.css("a[href]::attr(href)").get(default=None)
+            products.append({
+                "name": name,
+                "price": price_el,
+                "url": urljoin(final_url, str(link)) if link else None,
+            })
+
+    campaigns: list[str] = []
+    seen_campaigns: set[str] = set()
+    for node in sel.css("section, div, p, span, li"):
+        node_text = str(node.get_all_text(separator=" ", strip=True))
+        if len(node_text) > 500 or node_text in seen_campaigns:
+            continue
+        if CAMPAIGN_RE.search(node_text):
+            seen_campaigns.add(node_text)
+            campaigns.append(node_text)
+            if len(campaigns) >= 20:
+                break
+
+    hash_input = json.dumps(
+        {"prices": prices, "products": products[:20], "campaigns": campaigns[:10]}, sort_keys=True
+    )
+    content_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+
+    return {
+        "profile": "competitor-page",
+        "url": url,
+        "final_url": final_url,
+        "title": _first(sel, "title::text"),
+        "description": _first(sel, 'meta[name="description"]::attr(content)'),
+        "prices": prices,
+        "products": products[:50],
+        "campaigns": campaigns,
+        "content_hash": content_hash,
+        "changed_fields": [],
     }
 
 

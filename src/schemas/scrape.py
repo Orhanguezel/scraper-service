@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 ScrapeMode = Literal["fast", "stealthy", "dynamic"]
-ScrapeProfile = Literal["geo-page", "geo-robots"]
+ScrapeProfile = Literal["geo-page", "geo-robots", "lead-page", "website-analysis", "directory-listing", "fair-exhibitor", "competitor-page"]
 HttpMethod = Literal["GET", "POST"]
 
 

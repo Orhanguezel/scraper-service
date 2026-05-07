@@ -9,6 +9,7 @@ from src.engine.service import perform_scrape
 from src.schemas.job import JobStatus
 from src.schemas.scrape import ScrapeRequest
 from src.workers.places_tasks import run_places_job
+from src.workers.spider_tasks import run_spider_job
 from src.workers.webhook import post_callback
 
 
@@ -72,7 +73,7 @@ def redis_settings_from_url(url: str) -> RedisSettings:
 
 
 class WorkerSettings:
-    functions = [run_scrape_job, run_places_job]
+    functions = [run_scrape_job, run_places_job, run_spider_job]
     redis_settings = redis_settings_from_url(get_settings().redis_url)
     max_jobs = 2
     job_timeout = 600
