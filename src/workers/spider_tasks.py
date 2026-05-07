@@ -8,7 +8,7 @@ from scrapling.parser import Selector
 from src.engine.service import perform_scrape
 from src.schemas.job import JobStatus
 from src.schemas.scrape import ScrapeRequest
-from src.workers.tasks import _store_job, utc_now
+from src.workers.shared import store_job, utc_now
 from src.workers.webhook import post_callback
 
 
@@ -43,7 +43,7 @@ async def run_spider_job(
     callback_secret: str | None = None,
 ) -> dict[str, Any]:
     redis: Redis = ctx["redis"]
-    await _store_job(redis, job_id, status=JobStatus.running.value, updated_at=utc_now())
+    await store_job(redis, job_id, status=JobStatus.running.value, updated_at=utc_now())
 
     start_url = str(payload.get("start_url", ""))
     max_pages = min(int(payload.get("max_pages", 20)), 50)
@@ -82,7 +82,7 @@ async def run_spider_job(
             "pages_crawled": len(visited),
             "error": None,
         }
-        await _store_job(redis, job_id, status=JobStatus.done.value, result=result_payload, updated_at=utc_now())
+        await store_job(redis, job_id, status=JobStatus.done.value, result=result_payload, updated_at=utc_now())
         await post_callback(callback_url, callback_secret, result_payload)
         return result_payload
     except Exception as exc:
@@ -93,6 +93,6 @@ async def run_spider_job(
             "result": None,
             "error": error,
         }
-        await _store_job(redis, job_id, status=JobStatus.failed.value, error=error, updated_at=utc_now())
+        await store_job(redis, job_id, status=JobStatus.failed.value, error=error, updated_at=utc_now())
         await post_callback(callback_url, callback_secret, callback_payload)
         return callback_payload
