@@ -24,20 +24,10 @@ services:
     restart: unless-stopped
     ports: []
 
-  nginx:
-    image: nginx:1.27-alpine
-    depends_on:
-      - api
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/scraper.conf:/etc/nginx/conf.d/default.conf:ro
-      - letsencrypt-certs:/etc/letsencrypt:ro
-      - certbot-webroot:/var/www/certbot:ro
-    restart: unless-stopped
+  # NOTE: Bu VPS'te scraper, host'un sistem nginx'i arkasindan servis ediliyor
+  # (vhost scraper.guezelwebdesign.com -> 127.0.0.1:8200). Containerli nginx
+  # host port 80/443 ile cakistigi icin kaldirildi; api `expose: 8200` ile
+  # localhost'a baglanir, sistem nginx reverse-proxy yapar.
 
 volumes:
   crawl-checkpoints:
-  letsencrypt-certs:
-  certbot-webroot:
