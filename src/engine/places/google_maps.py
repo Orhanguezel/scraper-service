@@ -10,12 +10,14 @@ from datetime import datetime, timezone
 from urllib.parse import quote_plus, urljoin
 
 from bs4 import BeautifulSoup
-from playwright.async_api import Page
+from playwright.async_api import Browser, BrowserContext, Page, Playwright
 from redis.asyncio import Redis
 
 from src.config import get_settings
 from src.engine.places.browser import (
     apply_stealth_to_page,
+    browser_semaphore,
+    close_stealth_context,
     detect_captcha,
     dismiss_consent,
     launch_stealth_context,
@@ -180,83 +182,87 @@ async def _search_places_uncached(
 ) -> GoogleMapsSearchResponse:
     t0 = time.perf_counter()
     fetched_at = datetime.now(timezone.utc)
-    pw, browser, context = await launch_stealth_context(req.language, proxy_url)
     places: list[Place] = []
     timeout_ms = req.options.timeout * 1000
-    try:
-        page = await context.new_page()
-        await apply_stealth_to_page(page)
-        await page.goto(
-            _build_search_url(req.query, req.language, req.region),
-            timeout=timeout_ms,
-            wait_until="domcontentloaded",
-        )
-        await dismiss_consent(page)
-        if await detect_captcha(page):
+    async with browser_semaphore():
+        pw: Playwright | None = None
+        browser: Browser | None = None
+        context: BrowserContext | None = None
+        page: Page | None = None
+        try:
+            pw, browser, context = await launch_stealth_context(req.language, proxy_url)
+            page = await context.new_page()
+            await apply_stealth_to_page(page)
+            await page.goto(
+                _build_search_url(req.query, req.language, req.region),
+                timeout=timeout_ms,
+                wait_until="domcontentloaded",
+            )
+            await dismiss_consent(page)
+            if await detect_captcha(page):
+                return GoogleMapsSearchResponse(
+                    success=False,
+                    query=req.query,
+                    total_found=0,
+                    duration_ms=int((time.perf_counter() - t0) * 1000),
+                    cache_hit=False,
+                    fetched_at=fetched_at,
+                    places=[],
+                    error="captcha_detected",
+                )
+            await page.wait_for_selector(LISTING_SELECTOR, timeout=15_000)
+            await _scroll_until_enough(page, req.total, FEED_SELECTOR)
+            loc = page.locator(LISTING_SELECTOR)
+            count = await loc.count()
+            seen_hrefs: set[str] = set()
+            hrefs: list[str] = []
+            for i in range(count):
+                href = await loc.nth(i).get_attribute("href")
+                if not href or href in seen_hrefs:
+                    continue
+                seen_hrefs.add(href)
+                hrefs.append(href)
+                if len(hrefs) >= req.total:
+                    break
+
+            for href in hrefs:
+                try:
+                    await page.goto(_place_href_to_url(href), timeout=timeout_ms, wait_until="domcontentloaded")
+                    await dismiss_consent(page)
+                    await page.wait_for_selector(PLACE_NAME_SELECTOR, timeout=10_000)
+                    await page.wait_for_timeout(random.randint(1200, 2500))
+                    place = await _extract_place(page)
+                    if place and place.name:
+                        places.append(place)
+                except Exception as exc:
+                    logger.warning("places listing extract skipped: %s", exc)
+                    continue
+
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            return GoogleMapsSearchResponse(
+                success=True,
+                query=req.query,
+                total_found=len(places),
+                duration_ms=duration_ms,
+                cache_hit=False,
+                fetched_at=fetched_at,
+                places=places,
+                error=None,
+            )
+        except Exception as exc:
+            logger.exception("places search failed")
             return GoogleMapsSearchResponse(
                 success=False,
                 query=req.query,
-                total_found=0,
+                total_found=len(places),
                 duration_ms=int((time.perf_counter() - t0) * 1000),
                 cache_hit=False,
                 fetched_at=fetched_at,
-                places=[],
-                error="captcha_detected",
+                places=places,
+                error=str(exc),
             )
-        await page.wait_for_selector(LISTING_SELECTOR, timeout=15_000)
-        await _scroll_until_enough(page, req.total, FEED_SELECTOR)
-        loc = page.locator(LISTING_SELECTOR)
-        count = await loc.count()
-        seen_hrefs: set[str] = set()
-        hrefs: list[str] = []
-        for i in range(count):
-            href = await loc.nth(i).get_attribute("href")
-            if not href or href in seen_hrefs:
-                continue
-            seen_hrefs.add(href)
-            hrefs.append(href)
-            if len(hrefs) >= req.total:
-                break
-
-        for href in hrefs:
-            try:
-                await page.goto(_place_href_to_url(href), timeout=timeout_ms, wait_until="domcontentloaded")
-                await dismiss_consent(page)
-                await page.wait_for_selector(PLACE_NAME_SELECTOR, timeout=10_000)
-                await page.wait_for_timeout(random.randint(1200, 2500))
-                place = await _extract_place(page)
-                if place and place.name:
-                    places.append(place)
-            except Exception as exc:
-                logger.warning("places listing extract skipped: %s", exc)
-                continue
-
-        duration_ms = int((time.perf_counter() - t0) * 1000)
-        return GoogleMapsSearchResponse(
-            success=True,
-            query=req.query,
-            total_found=len(places),
-            duration_ms=duration_ms,
-            cache_hit=False,
-            fetched_at=fetched_at,
-            places=places,
-            error=None,
-        )
-    except Exception as exc:
-        logger.exception("places search failed")
-        return GoogleMapsSearchResponse(
-            success=False,
-            query=req.query,
-            total_found=len(places),
-            duration_ms=int((time.perf_counter() - t0) * 1000),
-            cache_hit=False,
-            fetched_at=fetched_at,
-            places=places,
-            error=str(exc),
-        )
-    finally:
-        await browser.close()
-        await pw.stop()
+        finally:
+            await close_stealth_context(pw, browser, context, page)
 
 
 async def search_places(

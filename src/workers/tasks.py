@@ -1,4 +1,6 @@
+import asyncio
 from typing import Any
+from arq import cron
 from arq.connections import RedisSettings
 from redis.asyncio import Redis
 
@@ -41,6 +43,17 @@ async def run_scrape_job(
         return callback_payload
 
 
+async def reap_browsers_cron(ctx: dict[str, Any]) -> dict[str, int]:
+    """Periodic safety net: kill orphaned Chromium / clean stale temp profiles.
+
+    Runs in a thread so the /proc sweep + os.kill never blocks the worker loop.
+    """
+    from src.lib.reaper import reap_orphan_browsers
+
+    max_age = get_settings().reaper_max_age_seconds
+    return await asyncio.to_thread(reap_orphan_browsers, max_age)
+
+
 def redis_settings_from_url(url: str) -> RedisSettings:
     from urllib.parse import urlparse
 
@@ -55,6 +68,14 @@ def redis_settings_from_url(url: str) -> RedisSettings:
 
 class WorkerSettings:
     functions = [run_scrape_job, run_places_job, run_spider_job]
+    cron_jobs = [
+        cron(
+            reap_browsers_cron,
+            minute=set(range(0, 60, 5)),
+            run_at_startup=True,
+            timeout=120,
+        )
+    ]
     redis_settings = redis_settings_from_url(get_settings().redis_url)
     max_jobs = 2
     job_timeout = 600

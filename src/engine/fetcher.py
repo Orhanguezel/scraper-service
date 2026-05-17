@@ -116,4 +116,12 @@ def _fetch_sync(request: ScrapeRequest) -> FetchResult:
 
 
 async def fetch_page(request: ScrapeRequest) -> FetchResult:
-    return await asyncio.to_thread(_fetch_sync, request)
+    # "fast" mode is a plain HTTP client (no browser); only the browser-backed
+    # Scrapling modes need to honour the global concurrency cap.
+    if request.mode == "fast":
+        return await asyncio.to_thread(_fetch_sync, request)
+
+    from src.engine.places.browser import browser_semaphore
+
+    async with browser_semaphore():
+        return await asyncio.to_thread(_fetch_sync, request)

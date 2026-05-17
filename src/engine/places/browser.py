@@ -1,10 +1,32 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import random
 from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 from playwright_stealth import stealth_async
+
+from src.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+_BROWSER_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def browser_semaphore() -> asyncio.Semaphore:
+    """Process-wide cap on concurrently launched browsers.
+
+    Lazily created so it binds to the running event loop (arq worker loop).
+    Tune via MAX_CONCURRENT_BROWSERS. This is a hard backstop independent of
+    the arq ``max_jobs`` setting so a future config change cannot uncap RAM.
+    """
+    global _BROWSER_SEMAPHORE
+    if _BROWSER_SEMAPHORE is None:
+        limit = max(1, get_settings().max_concurrent_browsers)
+        _BROWSER_SEMAPHORE = asyncio.Semaphore(limit)
+    return _BROWSER_SEMAPHORE
 
 UA_POOL: list[str] = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -70,6 +92,37 @@ async def launch_stealth_context(
         extra_http_headers={"Accept-Language": _accept_language_header(language)},
     )
     return pw, browser, context
+
+
+async def _close_with_timeout(label: str, coro: Any, timeout: float) -> None:
+    try:
+        await asyncio.wait_for(coro, timeout=timeout)
+    except (asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+        # A hung Chrome must not block teardown of the rest of the stack.
+        logger.warning("browser teardown step %s failed/timed out: %s", label, exc)
+
+
+async def close_stealth_context(
+    pw: Playwright | None,
+    browser: Browser | None,
+    context: BrowserContext | None,
+    page: Page | None = None,
+) -> None:
+    """Tear down page -> context -> browser -> playwright driver.
+
+    Each step is independently guarded with a timeout so that one hung step
+    (common under memory pressure) cannot prevent ``pw.stop()`` from running
+    and orphaning the Chromium + node driver processes.
+    """
+    timeout = float(get_settings().browser_close_timeout_seconds)
+    if page is not None:
+        await _close_with_timeout("page.close", page.close(), timeout)
+    if context is not None:
+        await _close_with_timeout("context.close", context.close(), timeout)
+    if browser is not None:
+        await _close_with_timeout("browser.close", browser.close(), timeout)
+    if pw is not None:
+        await _close_with_timeout("playwright.stop", pw.stop(), timeout)
 
 
 async def detect_captcha(page: Page) -> bool:
